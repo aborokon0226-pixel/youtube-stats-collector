@@ -23,6 +23,17 @@ def extract_video_id(url: str) -> str | None:
     return None
 
 
+def dedupe_ids(video_ids: list[str]) -> list[str]:
+    """순서를 유지하면서 중복된 video ID를 제거한다."""
+    seen = set()
+    deduped = []
+    for video_id in video_ids:
+        if video_id not in seen:
+            seen.add(video_id)
+            deduped.append(video_id)
+    return deduped
+
+
 def fetch_video_stats(youtube, video_ids: list[str]) -> list[dict]:
     """video ID 목록에 대해 유튜브 API로 통계를 조회한다."""
     results = []
@@ -110,6 +121,11 @@ def main() -> None:
     if not video_ids:
         print("유효한 유튜브 링크가 없습니다.")
         sys.exit(1)
+
+    deduped_ids = dedupe_ids(video_ids)
+    if len(deduped_ids) < len(video_ids):
+        print(f"중복된 링크 {len(video_ids) - len(deduped_ids)}개는 한 번만 집계합니다.")
+    video_ids = deduped_ids
 
     youtube = build("youtube", "v3", developerKey=api_key)
     rows = fetch_video_stats(youtube, video_ids)

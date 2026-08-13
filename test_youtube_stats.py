@@ -1,6 +1,6 @@
 import unittest
 
-from youtube_stats import extract_video_id
+from youtube_stats import dedupe_ids, extract_video_id
 
 
 class TestExtractVideoId(unittest.TestCase):
@@ -23,6 +23,19 @@ class TestExtractVideoId(unittest.TestCase):
     def test_invalid_url_returns_none(self):
         url = "https://www.example.com/not-a-youtube-link"
         self.assertIsNone(extract_video_id(url))
+
+
+class TestDedupeIds(unittest.TestCase):
+    def test_removes_duplicates_preserving_order(self):
+        ids = ["a", "b", "a", "c", "b"]
+        self.assertEqual(dedupe_ids(ids), ["a", "b", "c"])
+
+    def test_no_duplicates_returns_same_list(self):
+        ids = ["a", "b", "c"]
+        self.assertEqual(dedupe_ids(ids), ["a", "b", "c"])
+
+    def test_empty_list(self):
+        self.assertEqual(dedupe_ids([]), [])
 
 
 if __name__ == "__main__":
