@@ -1,6 +1,17 @@
 import unittest
 
-from youtube_stats import dedupe_ids, extract_video_id
+from openpyxl import Workbook
+
+from youtube_stats import (
+    KEY_CONTENT_VIEWS_ROW,
+    PULLING_CONTENT_VIEWS_ROW,
+    dedupe_ids,
+    ensure_week_column,
+    extract_video_id,
+    links_to_video_ids,
+    week_column_index,
+    write_view_counts,
+)
 
 
 class TestExtractVideoId(unittest.TestCase):
@@ -36,6 +47,48 @@ class TestDedupeIds(unittest.TestCase):
 
     def test_empty_list(self):
         self.assertEqual(dedupe_ids([]), [])
+
+
+class TestLinksToVideoIds(unittest.TestCase):
+    def test_splits_valid_and_invalid_links(self):
+        links = [
+            "https://youtu.be/dQw4w9WgXcQ",
+            "not-a-link",
+            "https://youtu.be/dQw4w9WgXcQ",  # 중복
+        ]
+        video_ids, invalid_links = links_to_video_ids(links)
+        self.assertEqual(video_ids, ["dQw4w9WgXcQ"])
+        self.assertEqual(invalid_links, ["not-a-link"])
+
+
+class TestWeekColumnIndex(unittest.TestCase):
+    def test_week_one_is_column_c(self):
+        self.assertEqual(week_column_index(1), 3)
+
+    def test_week_three_is_column_e(self):
+        self.assertEqual(week_column_index(3), 5)
+
+
+class TestEnsureWeekColumn(unittest.TestCase):
+    def test_creates_header_for_new_week(self):
+        sheet = Workbook().active
+        column = ensure_week_column(sheet, 1)
+        self.assertEqual(column, 3)
+        self.assertEqual(sheet.cell(row=1, column=3).value, "1주차 현황")
+
+    def test_keeps_existing_header(self):
+        sheet = Workbook().active
+        sheet.cell(row=1, column=3, value="1주차 현황(수정됨)")
+        ensure_week_column(sheet, 1)
+        self.assertEqual(sheet.cell(row=1, column=3).value, "1주차 현황(수정됨)")
+
+
+class TestWriteViewCounts(unittest.TestCase):
+    def test_writes_to_correct_rows(self):
+        sheet = Workbook().active
+        write_view_counts(sheet, week_col=3, key_content_views=100, pulling_content_views=200)
+        self.assertEqual(sheet.cell(row=KEY_CONTENT_VIEWS_ROW, column=3).value, 100)
+        self.assertEqual(sheet.cell(row=PULLING_CONTENT_VIEWS_ROW, column=3).value, 200)
 
 
 if __name__ == "__main__":

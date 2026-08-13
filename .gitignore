@@ -1,5 +1,5 @@
 .env
 __pycache__/
 *.pyc
-youtube_stats_*.xlsx
+funnel_report.xlsx
 .claude/
