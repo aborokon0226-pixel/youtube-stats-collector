@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+youtube_stats_*.xlsx
+.claude/
