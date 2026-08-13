@@ -1,6 +1,22 @@
 # 유튜브 영상 통계 수집기
 
-유튜브 영상 링크 여러 개를 입력하면, 조회수·좋아요수·댓글수·게시일을 자동으로 가져와서 엑셀 파일로 저장해주는 프로그램입니다.
+[![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](#4-테스트-실행하기)
+
+유튜브 영상 링크 여러 개를 입력하면, **조회수·좋아요수·댓글수·게시일**을 자동으로 가져와서 엑셀 파일로 저장해주는 프로그램입니다.
+
+| 입력 | 처리 | 출력 |
+| --- | --- | --- |
+| 유튜브 영상 링크 목록 | YouTube Data API로 통계 조회 | `youtube_stats_YYYY-MM-DD.xlsx` |
+
+## 목차
+
+- [1. 준비하기](#1-준비하기)
+- [2. 유튜브 API 키 설정하기](#2-유튜브-api-키-설정하기)
+- [3. 실행하기](#3-실행하기)
+- [4. 테스트 실행하기](#4-테스트-실행하기)
+- [참고](#참고)
 
 ## 1. 준비하기
 
@@ -21,7 +37,7 @@ pip install -r requirements.txt
 YOUTUBE_API_KEY=발급받은_API_키
 ```
 
-`.env` 파일은 절대 GitHub에 올리지 마세요 (`.gitignore`에 이미 등록되어 있어 자동으로 제외됩니다).
+> `.env` 파일은 절대 GitHub에 올리지 마세요. `.gitignore`에 이미 등록되어 있어 자동으로 제외됩니다.
 
 ## 3. 실행하기
 
@@ -38,7 +54,11 @@ https://youtu.be/dQw4w9WgXcQ
 (빈 줄에서 Enter)
 ```
 
-실행이 끝나면 `youtube_stats_YYYY-MM-DD.xlsx` 파일이 생성되며, 여기에 영상별 통계가 저장됩니다.
+실행이 끝나면 `youtube_stats_YYYY-MM-DD.xlsx` 파일이 생성되며, 여기에 영상별 통계가 아래와 같은 표로 저장됩니다.
+
+| 제목 | 게시일 | 조회수 | 좋아요수 | 댓글수 | 영상 링크 |
+| --- | --- | --- | --- | --- | --- |
+| 예시 영상 제목 | 2026-01-01 | 12,345 | 678 | 90 | https://youtu.be/... |
 
 ## 4. 테스트 실행하기
 
