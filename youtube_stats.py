@@ -1,17 +1,53 @@
-"""유튜브 영상 링크 목록을 받아 조회수/좋아요/댓글수 등을 수집하고 엑셀로 저장한다."""
+"""유튜브 영상 링크를 입력받아, 주차별 콘텐츠 마케팅 퍼널 표에 조회수를 채워 넣는다."""
 
 import os
 import re
 import sys
-from datetime import date
+from pathlib import Path
 
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 VIDEO_ID_PATTERNS = [
     r"(?:v=|/videos/|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{11})",
 ]
+
+REPORT_PATH = "funnel_report.xlsx"
+MAIN_SHEET_NAME = "퍼널 현황"
+DETAIL_SHEET_NAME = "상세 내역"
+
+# 사용자가 공유해준 주차별 콘텐츠 마케팅 퍼널 표와 같은 순서.
+FUNNEL_ROWS = [
+    "매출",
+    "객단가",
+    "필요고객수",
+    "유료회원 전환율",
+    "무료회원수",
+    "무료회원 전환율",
+    "랜딩페이지 접속수",
+    "링크클릭율",
+    "키콘텐츠 조회수",
+    "클릭율",
+    "시청지속시간",
+    "검색 유입",
+    "페이지 유입",
+    "키 콘텐츠 연계율",
+    "풀링 콘텐츠 조회수",
+    "클릭율",
+    "시청지속시간",
+    "탐색 유입",
+    "월간 구독 증가수",
+    "구독전환율",
+    "하루 평균 조회수",
+    "48시간 조회수",
+]
+
+# openpyxl은 1부터 시작하고, 1행은 헤더이므로 목록 순서 + 2.
+KEY_CONTENT_VIEWS_ROW = FUNNEL_ROWS.index("키콘텐츠 조회수") + 2
+PULLING_CONTENT_VIEWS_ROW = FUNNEL_ROWS.index("풀링 콘텐츠 조회수") + 2
+
+FIRST_WEEK_COLUMN = 3  # A=항목, B=월간 목표, C=1주차 현황...
 
 
 def extract_video_id(url: str) -> str | None:
@@ -21,6 +57,17 @@ def extract_video_id(url: str) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+def dedupe_ids(video_ids: list[str]) -> list[str]:
+    """순서를 유지하면서 중복된 video ID를 제거한다."""
+    seen = set()
+    deduped = []
+    for video_id in video_ids:
+        if video_id not in seen:
+            seen.add(video_id)
+            deduped.append(video_id)
+    return deduped
 
 
 def fetch_video_stats(youtube, video_ids: list[str]) -> list[dict]:
@@ -49,29 +96,67 @@ def fetch_video_stats(youtube, video_ids: list[str]) -> list[dict]:
     return results
 
 
-def save_to_excel(rows: list[dict], output_path: str) -> None:
-    """수집한 통계를 엑셀 파일로 저장한다."""
+def links_to_video_ids(links: list[str]) -> tuple[list[str], list[str]]:
+    """링크 목록을 (유효한 video ID 목록, 인식 못한 링크 목록)으로 나눈다."""
+    video_ids = []
+    invalid_links = []
+    for link in links:
+        video_id = extract_video_id(link)
+        if video_id:
+            video_ids.append(video_id)
+        else:
+            invalid_links.append(link)
+    return dedupe_ids(video_ids), invalid_links
+
+
+def week_column_index(week: int) -> int:
+    """몇 주차인지를 엑셀 열 번호로 변환한다. (1주차 -> C열=3)"""
+    return FIRST_WEEK_COLUMN + (week - 1)
+
+
+def get_or_create_workbook(path: str) -> Workbook:
+    """기존 리포트 파일이 있으면 불러오고, 없으면 표 틀을 새로 만든다."""
+    if Path(path).exists():
+        return load_workbook(path)
+
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "유튜브 통계"
-    headers = ["제목", "게시일", "조회수", "좋아요수", "댓글수", "영상 링크"]
-    sheet.append(headers)
-    for row in rows:
-        sheet.append(
-            [
-                row["title"],
-                row["published_at"],
-                row["view_count"],
-                row["like_count"],
-                row["comment_count"],
-                f"https://youtu.be/{row['video_id']}",
-            ]
-        )
-    workbook.save(output_path)
+    sheet.title = MAIN_SHEET_NAME
+    sheet.cell(row=1, column=1, value="")
+    sheet.cell(row=1, column=2, value="월간 목표")
+    for row_index, label in enumerate(FUNNEL_ROWS, start=2):
+        sheet.cell(row=row_index, column=1, value=label)
+    workbook.create_sheet(DETAIL_SHEET_NAME)
+    return workbook
 
 
-def read_links_from_stdin() -> list[str]:
-    print("유튜브 영상 링크를 한 줄에 하나씩 입력하세요. 입력이 끝나면 빈 줄에서 Enter를 누르세요.")
+def ensure_week_column(sheet, week: int) -> int:
+    """해당 주차의 열이 없으면 헤더를 추가하고, 열 번호를 반환한다."""
+    column = week_column_index(week)
+    header_cell = sheet.cell(row=1, column=column)
+    if not header_cell.value:
+        header_cell.value = f"{week}주차 현황"
+    return column
+
+
+def write_view_counts(sheet, week_col: int, key_content_views: int, pulling_content_views: int) -> None:
+    sheet.cell(row=KEY_CONTENT_VIEWS_ROW, column=week_col, value=key_content_views)
+    sheet.cell(row=PULLING_CONTENT_VIEWS_ROW, column=week_col, value=pulling_content_views)
+
+
+def write_detail_sheet(workbook: Workbook, week: int, key_rows: list[dict], pulling_rows: list[dict]) -> None:
+    """이번 주차에 수집한 영상별 상세 통계를 참고용으로 남긴다."""
+    sheet = workbook[DETAIL_SHEET_NAME] if DETAIL_SHEET_NAME in workbook.sheetnames else workbook.create_sheet(DETAIL_SHEET_NAME)
+    if sheet.max_row == 1 and sheet.cell(row=1, column=1).value is None:
+        sheet.append(["주차", "분류", "제목", "게시일", "조회수", "좋아요수", "댓글수", "영상 링크"])
+    for row in key_rows:
+        sheet.append([week, "키콘텐츠", row["title"], row["published_at"], row["view_count"], row["like_count"], row["comment_count"], f"https://youtu.be/{row['video_id']}"])
+    for row in pulling_rows:
+        sheet.append([week, "풀링 콘텐츠", row["title"], row["published_at"], row["view_count"], row["like_count"], row["comment_count"], f"https://youtu.be/{row['video_id']}"])
+
+
+def read_links_from_stdin(prompt: str) -> list[str]:
+    print(prompt)
     links = []
     while True:
         line = input().strip()
@@ -81,6 +166,25 @@ def read_links_from_stdin() -> list[str]:
     return links
 
 
+def prompt_week_number() -> int:
+    while True:
+        raw = input("몇 주차 데이터인가요? (숫자만 입력, 예: 1): ").strip()
+        if raw.isdigit() and int(raw) >= 1:
+            return int(raw)
+        print("1 이상의 숫자를 입력해주세요.")
+
+
+def collect_stats(youtube, links: list[str]) -> list[dict]:
+    video_ids, invalid_links = links_to_video_ids(links)
+    if invalid_links:
+        print("다음 링크에서는 영상 ID를 찾을 수 없어 제외했습니다:")
+        for link in invalid_links:
+            print(f"  - {link}")
+    if not video_ids:
+        return []
+    return fetch_video_stats(youtube, video_ids)
+
+
 def main() -> None:
     load_dotenv()
     api_key = os.environ.get("YOUTUBE_API_KEY")
@@ -88,35 +192,30 @@ def main() -> None:
         print("오류: YOUTUBE_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
         sys.exit(1)
 
-    links = read_links_from_stdin()
-    if not links:
-        print("입력된 링크가 없습니다.")
-        sys.exit(1)
-
-    video_ids = []
-    invalid_links = []
-    for link in links:
-        video_id = extract_video_id(link)
-        if video_id:
-            video_ids.append(video_id)
-        else:
-            invalid_links.append(link)
-
-    if invalid_links:
-        print("다음 링크에서는 영상 ID를 찾을 수 없어 제외했습니다:")
-        for link in invalid_links:
-            print(f"  - {link}")
-
-    if not video_ids:
-        print("유효한 유튜브 링크가 없습니다.")
-        sys.exit(1)
+    week = prompt_week_number()
+    key_links = read_links_from_stdin(
+        "[키콘텐츠] 유튜브 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
+    )
+    pulling_links = read_links_from_stdin(
+        "[풀링 콘텐츠] 유튜브 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
+    )
 
     youtube = build("youtube", "v3", developerKey=api_key)
-    rows = fetch_video_stats(youtube, video_ids)
+    key_rows = collect_stats(youtube, key_links)
+    pulling_rows = collect_stats(youtube, pulling_links)
 
-    output_path = f"youtube_stats_{date.today().isoformat()}.xlsx"
-    save_to_excel(rows, output_path)
-    print(f"완료: {len(rows)}개 영상 통계를 {output_path} 파일에 저장했습니다.")
+    key_views = sum(row["view_count"] for row in key_rows)
+    pulling_views = sum(row["view_count"] for row in pulling_rows)
+
+    workbook = get_or_create_workbook(REPORT_PATH)
+    sheet = workbook[MAIN_SHEET_NAME]
+    week_col = ensure_week_column(sheet, week)
+    write_view_counts(sheet, week_col, key_views, pulling_views)
+    write_detail_sheet(workbook, week, key_rows, pulling_rows)
+    workbook.save(REPORT_PATH)
+
+    print(f"완료: {week}주차 - 키콘텐츠 조회수 {key_views}, 풀링 콘텐츠 조회수 {pulling_views}")
+    print(f"{REPORT_PATH} 파일에 저장했습니다. (아직 자동으로 못 채우는 항목은 직접 입력해주세요)")
 
 
 if __name__ == "__main__":
