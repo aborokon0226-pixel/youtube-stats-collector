@@ -96,6 +96,49 @@ def fetch_video_stats(youtube, video_ids: list[str]) -> list[dict]:
     return results
 
 
+def parse_channel_reference(text: str) -> dict:
+    """채널 URL/@핸들/채널 ID를 유튜브 API가 이해하는 형태로 바꾼다."""
+    text = text.strip()
+    match = re.search(r"youtube\.com/channel/([A-Za-z0-9_-]+)", text)
+    if match:
+        return {"id": match.group(1)}
+    match = re.search(r"youtube\.com/@([A-Za-z0-9_.-]+)", text)
+    if match:
+        return {"forHandle": "@" + match.group(1)}
+    if text.startswith("@"):
+        return {"forHandle": text}
+    if text.startswith("UC") and len(text) == 24:
+        return {"id": text}
+    return {"forHandle": "@" + text}
+
+
+def get_uploads_playlist_id(youtube, channel_ref: dict) -> str:
+    """채널의 '업로드 전체' 재생목록 ID를 가져온다."""
+    response = youtube.channels().list(part="contentDetails", **channel_ref).execute()
+    items = response.get("items", [])
+    if not items:
+        raise ValueError("채널을 찾을 수 없습니다. 채널 주소를 다시 확인해주세요.")
+    return items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+
+def get_all_playlist_video_ids(youtube, playlist_id: str) -> list[str]:
+    """재생목록에 있는 모든 영상 ID를 페이지를 넘기며 가져온다."""
+    video_ids = []
+    page_token = None
+    while True:
+        response = (
+            youtube.playlistItems()
+            .list(part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=page_token)
+            .execute()
+        )
+        for item in response.get("items", []):
+            video_ids.append(item["contentDetails"]["videoId"])
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+    return video_ids
+
+
 def links_to_video_ids(links: list[str]) -> tuple[list[str], list[str]]:
     """링크 목록을 (유효한 video ID 목록, 인식 못한 링크 목록)으로 나눈다."""
     video_ids = []
@@ -195,15 +238,22 @@ def main() -> None:
 
     week = prompt_week_number()
     key_links = read_links_from_stdin(
-        "[키콘텐츠] 유튜브 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
+        "[키콘텐츠] 랜딩페이지로 유입시키는 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
     )
-    pulling_links = read_links_from_stdin(
-        "[풀링 콘텐츠] 유튜브 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
-    )
+    channel_text = input(
+        "[풀링 콘텐츠] 채널 전체에서 자동으로 계산합니다. 채널 주소(@핸들 또는 channel/UC... URL)를 입력하세요: "
+    ).strip()
 
     youtube = build("youtube", "v3", developerKey=api_key)
     key_rows = collect_stats(youtube, key_links)
-    pulling_rows = collect_stats(youtube, pulling_links)
+    key_video_ids = {row["video_id"] for row in key_rows}
+
+    pulling_rows = []
+    if channel_text:
+        uploads_playlist_id = get_uploads_playlist_id(youtube, parse_channel_reference(channel_text))
+        all_video_ids = get_all_playlist_video_ids(youtube, uploads_playlist_id)
+        pulling_video_ids = [video_id for video_id in all_video_ids if video_id not in key_video_ids]
+        pulling_rows = fetch_video_stats(youtube, pulling_video_ids)
 
     key_views = sum(row["view_count"] for row in key_rows)
     pulling_views = sum(row["view_count"] for row in pulling_rows)
