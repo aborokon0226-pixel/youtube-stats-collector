@@ -186,6 +186,7 @@ def collect_stats(youtube, links: list[str]) -> list[dict]:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
     load_dotenv()
     api_key = os.environ.get("YOUTUBE_API_KEY")
     if not api_key:
