@@ -1,17 +1,23 @@
 import unittest
+from datetime import date
 
 from openpyxl import Workbook
 
 from youtube_stats import (
     KEY_CONTENT_VIEWS_ROW,
     PULLING_CONTENT_VIEWS_ROW,
+    compute_subscriber_conversion_rate,
     dedupe_ids,
     ensure_week_column,
     extract_video_id,
     get_all_playlist_video_ids,
+    get_previous_subscriber_snapshot,
     links_to_video_ids,
     parse_channel_reference,
+    record_subscriber_snapshot,
     week_column_index,
+    week_date_range,
+    week_of_month,
     write_view_counts,
 )
 
@@ -61,6 +67,32 @@ class TestLinksToVideoIds(unittest.TestCase):
         video_ids, invalid_links = links_to_video_ids(links)
         self.assertEqual(video_ids, ["dQw4w9WgXcQ"])
         self.assertEqual(invalid_links, ["not-a-link"])
+
+
+class TestWeekOfMonth(unittest.TestCase):
+    def test_first_week(self):
+        self.assertEqual(week_of_month(date(2026, 8, 1)), 1)
+        self.assertEqual(week_of_month(date(2026, 8, 7)), 1)
+
+    def test_third_week(self):
+        self.assertEqual(week_of_month(date(2026, 8, 15)), 3)
+        self.assertEqual(week_of_month(date(2026, 8, 19)), 3)
+        self.assertEqual(week_of_month(date(2026, 8, 21)), 3)
+
+    def test_last_partial_week(self):
+        self.assertEqual(week_of_month(date(2026, 8, 31)), 5)
+
+
+class TestWeekDateRange(unittest.TestCase):
+    def test_third_week_of_august(self):
+        start, end = week_date_range(date(2026, 8, 19))
+        self.assertEqual(start, date(2026, 8, 15))
+        self.assertEqual(end, date(2026, 8, 21))
+
+    def test_last_week_clamps_to_month_end(self):
+        start, end = week_date_range(date(2026, 8, 31))
+        self.assertEqual(start, date(2026, 8, 29))
+        self.assertEqual(end, date(2026, 8, 31))
 
 
 class TestParseChannelReference(unittest.TestCase):
@@ -149,6 +181,41 @@ class TestWriteViewCounts(unittest.TestCase):
         write_view_counts(sheet, week_col=3, key_content_views=100, pulling_content_views=200)
         self.assertEqual(sheet.cell(row=KEY_CONTENT_VIEWS_ROW, column=3).value, 100)
         self.assertEqual(sheet.cell(row=PULLING_CONTENT_VIEWS_ROW, column=3).value, 200)
+
+
+class TestComputeSubscriberConversionRate(unittest.TestCase):
+    def test_normal_case(self):
+        self.assertAlmostEqual(compute_subscriber_conversion_rate(20, 1000), 2.0)
+
+    def test_zero_views_returns_zero(self):
+        self.assertEqual(compute_subscriber_conversion_rate(5, 0), 0.0)
+
+    def test_negative_growth(self):
+        self.assertAlmostEqual(compute_subscriber_conversion_rate(-8, 500), -1.6)
+
+
+class TestSubscriberSnapshot(unittest.TestCase):
+    def test_no_snapshot_sheet_returns_none(self):
+        workbook = Workbook()
+        self.assertIsNone(get_previous_subscriber_snapshot(workbook, week=3))
+
+    def test_records_and_finds_previous_week(self):
+        workbook = Workbook()
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100)
+        record_subscriber_snapshot(workbook, week=2, subscriber_count=120)
+        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=3), 120)
+
+    def test_ignores_future_weeks(self):
+        workbook = Workbook()
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100)
+        record_subscriber_snapshot(workbook, week=5, subscriber_count=200)
+        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=3), 100)
+
+    def test_rerecording_same_week_updates_value(self):
+        workbook = Workbook()
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100)
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=150)
+        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=2), 150)
 
 
 if __name__ == "__main__":

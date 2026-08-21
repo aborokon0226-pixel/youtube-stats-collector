@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 funnel_report.xlsx
 .claude/
+client_secret.json
+token.json
+auth_url.txt
