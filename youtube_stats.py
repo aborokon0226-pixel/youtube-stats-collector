@@ -1,8 +1,10 @@
 """유튜브 영상 링크를 입력받아, 주차별 콘텐츠 마케팅 퍼널 표에 조회수를 채워 넣는다."""
 
+import calendar
 import os
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +18,7 @@ VIDEO_ID_PATTERNS = [
 REPORT_PATH = "funnel_report.xlsx"
 MAIN_SHEET_NAME = "퍼널 현황"
 DETAIL_SHEET_NAME = "상세 내역"
+SUBSCRIBER_SNAPSHOT_SHEET = "구독자 스냅샷"
 
 # 사용자가 공유해준 주차별 콘텐츠 마케팅 퍼널 표와 같은 순서.
 FUNNEL_ROWS = [
@@ -46,6 +49,8 @@ FUNNEL_ROWS = [
 # openpyxl은 1부터 시작하고, 1행은 헤더이므로 목록 순서 + 2.
 KEY_CONTENT_VIEWS_ROW = FUNNEL_ROWS.index("키콘텐츠 조회수") + 2
 PULLING_CONTENT_VIEWS_ROW = FUNNEL_ROWS.index("풀링 콘텐츠 조회수") + 2
+SUBSCRIBER_GROWTH_ROW = FUNNEL_ROWS.index("월간 구독 증가수") + 2
+SUBSCRIBER_CONVERSION_ROW = FUNNEL_ROWS.index("구독전환율") + 2
 
 FIRST_WEEK_COLUMN = 3  # A=항목, B=월간 목표, C=1주차 현황...
 
@@ -94,6 +99,51 @@ def fetch_video_stats(youtube, video_ids: list[str]) -> list[dict]:
                 }
             )
     return results
+
+
+def fetch_channel_subscriber_count(youtube, channel_ref: dict) -> int:
+    """채널의 현재 구독자 수(공개 데이터)를 가져온다."""
+    response = youtube.channels().list(part="statistics", **channel_ref).execute()
+    items = response.get("items", [])
+    if not items:
+        raise ValueError("채널을 찾을 수 없습니다. 채널 주소를 다시 확인해주세요.")
+    return int(items[0]["statistics"].get("subscriberCount", 0))
+
+
+def get_previous_subscriber_snapshot(workbook: Workbook, week: int) -> int | None:
+    """week보다 이전 주차 중, 가장 최근에 기록해둔 구독자 수 스냅샷을 찾는다."""
+    if SUBSCRIBER_SNAPSHOT_SHEET not in workbook.sheetnames:
+        return None
+    sheet = workbook[SUBSCRIBER_SNAPSHOT_SHEET]
+    best: tuple[int, int] | None = None
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        snapshot_week, subscriber_count = row[0], row[1]
+        if snapshot_week < week and (best is None or snapshot_week > best[0]):
+            best = (snapshot_week, subscriber_count)
+    return best[1] if best else None
+
+
+def record_subscriber_snapshot(workbook: Workbook, week: int, subscriber_count: int) -> None:
+    """이번 주차의 구독자 수를 기록해서, 다음 주에 증가분을 계산할 수 있게 남겨둔다."""
+    sheet = (
+        workbook[SUBSCRIBER_SNAPSHOT_SHEET]
+        if SUBSCRIBER_SNAPSHOT_SHEET in workbook.sheetnames
+        else workbook.create_sheet(SUBSCRIBER_SNAPSHOT_SHEET)
+    )
+    if sheet.max_row == 1 and sheet.max_column == 1:
+        sheet.append(["주차", "구독자수"])
+    for row_cells in sheet.iter_rows(min_row=2):
+        if row_cells[0].value == week:
+            row_cells[1].value = subscriber_count
+            return
+    sheet.append([week, subscriber_count])
+
+
+def compute_subscriber_conversion_rate(subscriber_growth: int, total_views: int) -> float:
+    """조회수 대비 구독전환율(%)을 계산한다."""
+    return (subscriber_growth / total_views * 100) if total_views else 0.0
 
 
 def parse_channel_reference(text: str) -> dict:
@@ -152,6 +202,20 @@ def links_to_video_ids(links: list[str]) -> tuple[list[str], list[str]]:
     return dedupe_ids(video_ids), invalid_links
 
 
+def week_of_month(d: date) -> int:
+    """그 달에서 몇 번째 7일 구간인지 (1~7일=1주차, 8~14일=2주차, ...)."""
+    return (d.day - 1) // 7 + 1
+
+
+def week_date_range(d: date) -> tuple[date, date]:
+    """d가 속한 '주차'의 시작일과 종료일을 구한다. (월 마지막 주는 말일에서 끊김)"""
+    week = week_of_month(d)
+    start_day = (week - 1) * 7 + 1
+    last_day_of_month = calendar.monthrange(d.year, d.month)[1]
+    end_day = min(week * 7, last_day_of_month)
+    return d.replace(day=start_day), d.replace(day=end_day)
+
+
 def week_column_index(week: int) -> int:
     """몇 주차인지를 엑셀 열 번호로 변환한다. (1주차 -> C열=3)"""
     return FIRST_WEEK_COLUMN + (week - 1)
@@ -190,7 +254,7 @@ def write_view_counts(sheet, week_col: int, key_content_views: int, pulling_cont
 def write_detail_sheet(workbook: Workbook, week: int, key_rows: list[dict], pulling_rows: list[dict]) -> None:
     """이번 주차에 수집한 영상별 상세 통계를 참고용으로 남긴다."""
     sheet = workbook[DETAIL_SHEET_NAME] if DETAIL_SHEET_NAME in workbook.sheetnames else workbook.create_sheet(DETAIL_SHEET_NAME)
-    if sheet.max_row == 1 and sheet.cell(row=1, column=1).value is None:
+    if sheet.max_row == 1 and sheet.max_column == 1:
         sheet.append(["주차", "분류", "제목", "게시일", "조회수", "좋아요수", "댓글수", "영상 링크"])
     for row in key_rows:
         sheet.append([week, "키콘텐츠", row["title"], row["published_at"], row["view_count"], row["like_count"], row["comment_count"], f"https://youtu.be/{row['video_id']}"])
@@ -210,11 +274,22 @@ def read_links_from_stdin(prompt: str) -> list[str]:
 
 
 def prompt_week_number() -> int:
+    default_week = week_of_month(date.today())
     while True:
-        raw = input("몇 주차 데이터인가요? (숫자만 입력, 예: 1): ").strip()
+        raw = input(f"몇 주차 데이터인가요? (숫자만 입력, 기본값 {default_week}주차 - 그냥 Enter): ").strip()
+        if not raw:
+            return default_week
         if raw.isdigit() and int(raw) >= 1:
             return int(raw)
         print("1 이상의 숫자를 입력해주세요.")
+
+
+def prompt_channel_reference(prompt: str) -> str:
+    """DEFAULT_CHANNEL_URL이 .env에 있으면 기본값으로 보여주고, 빈 입력이면 그 값을 쓴다."""
+    default = os.environ.get("DEFAULT_CHANNEL_URL", "")
+    hint = f" (기본값: {default} - 그냥 Enter)" if default else ""
+    raw = input(f"{prompt}{hint}: ").strip()
+    return raw or default
 
 
 def collect_stats(youtube, links: list[str]) -> list[dict]:
@@ -240,20 +315,23 @@ def main() -> None:
     key_links = read_links_from_stdin(
         "[키콘텐츠] 랜딩페이지로 유입시키는 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
     )
-    channel_text = input(
-        "[풀링 콘텐츠] 채널 전체에서 자동으로 계산합니다. 채널 주소(@핸들 또는 channel/UC... URL)를 입력하세요: "
-    ).strip()
+    channel_text = prompt_channel_reference(
+        "[풀링 콘텐츠] 채널 전체에서 자동으로 계산합니다. 채널 주소(@핸들 또는 channel/UC... URL)를 입력하세요"
+    )
 
     youtube = build("youtube", "v3", developerKey=api_key)
     key_rows = collect_stats(youtube, key_links)
     key_video_ids = {row["video_id"] for row in key_rows}
 
     pulling_rows = []
+    subscriber_count = None
     if channel_text:
-        uploads_playlist_id = get_uploads_playlist_id(youtube, parse_channel_reference(channel_text))
+        channel_ref = parse_channel_reference(channel_text)
+        uploads_playlist_id = get_uploads_playlist_id(youtube, channel_ref)
         all_video_ids = get_all_playlist_video_ids(youtube, uploads_playlist_id)
         pulling_video_ids = [video_id for video_id in all_video_ids if video_id not in key_video_ids]
         pulling_rows = fetch_video_stats(youtube, pulling_video_ids)
+        subscriber_count = fetch_channel_subscriber_count(youtube, channel_ref)
 
     key_views = sum(row["view_count"] for row in key_rows)
     pulling_views = sum(row["view_count"] for row in pulling_rows)
@@ -263,9 +341,24 @@ def main() -> None:
     week_col = ensure_week_column(sheet, week)
     write_view_counts(sheet, week_col, key_views, pulling_views)
     write_detail_sheet(workbook, week, key_rows, pulling_rows)
+
+    subscriber_growth = None
+    if subscriber_count is not None:
+        previous_count = get_previous_subscriber_snapshot(workbook, week)
+        if previous_count is not None:
+            subscriber_growth = subscriber_count - previous_count
+            conversion_rate = compute_subscriber_conversion_rate(subscriber_growth, key_views + pulling_views)
+            sheet.cell(row=SUBSCRIBER_GROWTH_ROW, column=week_col, value=subscriber_growth)
+            sheet.cell(row=SUBSCRIBER_CONVERSION_ROW, column=week_col, value=round(conversion_rate, 2))
+        record_subscriber_snapshot(workbook, week, subscriber_count)
+
     workbook.save(REPORT_PATH)
 
     print(f"완료: {week}주차 - 키콘텐츠 조회수 {key_views}, 풀링 콘텐츠 조회수 {pulling_views}")
+    if subscriber_growth is not None:
+        print(f"       월간 구독 증가수 {subscriber_growth}명 (현재 구독자 수 {subscriber_count}명)")
+    elif subscriber_count is not None:
+        print(f"       현재 구독자 수 {subscriber_count}명을 기록했어요. 다음 주부터 증가수가 계산돼요.")
     print(f"{REPORT_PATH} 파일에 저장했습니다. (아직 자동으로 못 채우는 항목은 직접 입력해주세요)")
 
 
