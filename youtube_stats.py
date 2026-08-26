@@ -51,6 +51,16 @@ KEY_CONTENT_VIEWS_ROW = FUNNEL_ROWS.index("키콘텐츠 조회수") + 2
 PULLING_CONTENT_VIEWS_ROW = FUNNEL_ROWS.index("풀링 콘텐츠 조회수") + 2
 SUBSCRIBER_GROWTH_ROW = FUNNEL_ROWS.index("월간 구독 증가수") + 2
 SUBSCRIBER_CONVERSION_ROW = FUNNEL_ROWS.index("구독전환율") + 2
+DAILY_AVERAGE_VIEWS_ROW = FUNNEL_ROWS.index("하루 평균 조회수") + 2
+FORTY_EIGHT_HOUR_VIEWS_ROW = FUNNEL_ROWS.index("48시간 조회수") + 2
+
+# "시청지속시간"은 키콘텐츠·풀링 콘텐츠 구간에 각각 한 번씩 등장해서 위치로 구분한다.
+# (같은 구간의 "클릭율"은 유튜브 Analytics API가 제공하지 않아 행 상수를 두지 않았다.)
+KEY_AVG_VIEW_DURATION_ROW = 12
+SEARCH_TRAFFIC_ROW = 13
+PAGE_TRAFFIC_ROW = 14
+PULLING_AVG_VIEW_DURATION_ROW = 18
+BROWSE_TRAFFIC_ROW = 19
 
 FIRST_WEEK_COLUMN = 3  # A=항목, B=월간 목표, C=1주차 현황...
 
@@ -144,6 +154,17 @@ def record_subscriber_snapshot(workbook: Workbook, week: int, subscriber_count: 
 def compute_subscriber_conversion_rate(subscriber_growth: int, total_views: int) -> float:
     """조회수 대비 구독전환율(%)을 계산한다."""
     return (subscriber_growth / total_views * 100) if total_views else 0.0
+
+
+def compute_daily_average_views(total_views: int) -> float:
+    """이번 주(7일) 조회수를 하루 평균으로 환산한다."""
+    return total_views / 7
+
+
+def estimate_48_hour_views(daily_average_views: float) -> float:
+    """48시간 조회수는 개별 영상마다 게시 후 정확히 48시간 시점을 봐야 정확하지만,
+    아직 그 데이터는 못 가져오므로 하루 평균 조회수의 2배로 추정한다."""
+    return daily_average_views * 2
 
 
 def parse_channel_reference(text: str) -> dict:
@@ -352,6 +373,11 @@ def main() -> None:
             sheet.cell(row=SUBSCRIBER_CONVERSION_ROW, column=week_col, value=round(conversion_rate, 2))
         record_subscriber_snapshot(workbook, week, subscriber_count)
 
+    daily_average_views = compute_daily_average_views(key_views + pulling_views)
+    forty_eight_hour_views = estimate_48_hour_views(daily_average_views)
+    sheet.cell(row=DAILY_AVERAGE_VIEWS_ROW, column=week_col, value=round(daily_average_views, 1))
+    sheet.cell(row=FORTY_EIGHT_HOUR_VIEWS_ROW, column=week_col, value=round(forty_eight_hour_views, 1))
+
     workbook.save(REPORT_PATH)
 
     print(f"완료: {week}주차 - 키콘텐츠 조회수 {key_views}, 풀링 콘텐츠 조회수 {pulling_views}")
@@ -359,6 +385,7 @@ def main() -> None:
         print(f"       월간 구독 증가수 {subscriber_growth}명 (현재 구독자 수 {subscriber_count}명)")
     elif subscriber_count is not None:
         print(f"       현재 구독자 수 {subscriber_count}명을 기록했어요. 다음 주부터 증가수가 계산돼요.")
+    print(f"       하루 평균 조회수 {daily_average_views:.1f}회, 48시간 조회수(추정) {forty_eight_hour_views:.1f}회")
     print(f"{REPORT_PATH} 파일에 저장했습니다. (아직 자동으로 못 채우는 항목은 직접 입력해주세요)")
 
 

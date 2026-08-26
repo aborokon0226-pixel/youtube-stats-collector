@@ -6,9 +6,11 @@ from openpyxl import Workbook
 from youtube_stats import (
     KEY_CONTENT_VIEWS_ROW,
     PULLING_CONTENT_VIEWS_ROW,
+    compute_daily_average_views,
     compute_subscriber_conversion_rate,
     dedupe_ids,
     ensure_week_column,
+    estimate_48_hour_views,
     extract_video_id,
     get_all_playlist_video_ids,
     get_previous_subscriber_snapshot,
@@ -181,6 +183,14 @@ class TestWriteViewCounts(unittest.TestCase):
         write_view_counts(sheet, week_col=3, key_content_views=100, pulling_content_views=200)
         self.assertEqual(sheet.cell(row=KEY_CONTENT_VIEWS_ROW, column=3).value, 100)
         self.assertEqual(sheet.cell(row=PULLING_CONTENT_VIEWS_ROW, column=3).value, 200)
+
+
+class TestDailyAndFortyEightHourViews(unittest.TestCase):
+    def test_daily_average(self):
+        self.assertAlmostEqual(compute_daily_average_views(700), 100.0)
+
+    def test_forty_eight_hour_estimate(self):
+        self.assertAlmostEqual(estimate_48_hour_views(100.0), 200.0)
 
 
 class TestComputeSubscriberConversionRate(unittest.TestCase):
