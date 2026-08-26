@@ -64,7 +64,7 @@ def get_oauth_credentials() -> Credentials:
 
             webbrowser.open = open_and_save
             try:
-                creds = flow.run_local_server(port=0, timeout_seconds=900)
+                creds = flow.run_local_server(port=0, timeout_seconds=3600)
             finally:
                 webbrowser.open = original_open
         with open(TOKEN_PATH, "w", encoding="utf-8") as token_file:
@@ -84,7 +84,7 @@ def fetch_related_video_traffic(analytics, key_video_id: str) -> dict[str, int]:
             metrics="views",
             dimensions="insightTrafficSourceDetail",
             filters=f"video=={key_video_id};insightTrafficSourceType==RELATED_VIDEO",
-            maxResults=200,
+            maxResults=25,
             sort="-views",
         )
         .execute()
