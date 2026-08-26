@@ -21,6 +21,8 @@ from googleapiclient.errors import HttpError
 
 from youtube_stats import (
     BROWSE_TRAFFIC_ROW,
+    EXT_TRAFFIC_KEY_ROW,
+    EXT_TRAFFIC_PULLING_ROW,
     FUNNEL_ROWS,
     KEY_AVG_VIEW_DURATION_ROW,
     MAIN_SHEET_NAME,
@@ -226,9 +228,11 @@ def main() -> None:
 
     search_views = collect_traffic_source(analytics, [key_video_id], "YT_SEARCH", "키콘텐츠 검색 유입")
     page_views = collect_traffic_source(analytics, [key_video_id], "YT_OTHER_PAGE", "키콘텐츠 페이지 유입")
+    key_ext_views = collect_traffic_source(analytics, [key_video_id], "EXT_URL", "키콘텐츠 외부 유입")
     # 유튜브 Analytics API에는 "탐색 기능" 전용 값이 따로 없어서, 가장 가까운 SUBSCRIBER
     # (홈 화면 + 구독 피드)로 근사한다. Shorts 스와이프 등 다른 발견 경로는 포함되지 않는다.
     browse_views = collect_traffic_source(analytics, pulling_video_id_list, "SUBSCRIBER", "풀링 콘텐츠 탐색 유입")
+    pulling_ext_views = collect_traffic_source(analytics, pulling_video_id_list, "EXT_URL", "풀링 콘텐츠 외부 유입")
 
     workbook = get_or_create_workbook(REPORT_PATH)
     sheet = workbook[MAIN_SHEET_NAME]
@@ -245,6 +249,10 @@ def main() -> None:
         sheet.cell(row=PAGE_TRAFFIC_ROW, column=week_col, value=page_views)
     if browse_views is not None:
         sheet.cell(row=BROWSE_TRAFFIC_ROW, column=week_col, value=browse_views)
+    if key_ext_views is not None:
+        sheet.cell(row=EXT_TRAFFIC_KEY_ROW, column=week_col, value=key_ext_views)
+    if pulling_ext_views is not None:
+        sheet.cell(row=EXT_TRAFFIC_PULLING_ROW, column=week_col, value=pulling_ext_views)
 
     workbook.save(REPORT_PATH)
 
@@ -254,7 +262,8 @@ def main() -> None:
     )
     print(f"       키콘텐츠 시청지속시간(초) {key_metrics['avg_duration']}")
     print(f"       풀링 콘텐츠 시청지속시간(초) {pulling_metrics['avg_duration']}")
-    print(f"       검색 유입 {search_views}, 페이지 유입 {page_views}, 탐색 유입 {browse_views}")
+    print(f"       검색 유입 {search_views}, 페이지 유입 {page_views}, 외부 유입(키) {key_ext_views}")
+    print(f"       탐색 유입 {browse_views}, 외부 유입(풀링) {pulling_ext_views}")
 
 
 if __name__ == "__main__":

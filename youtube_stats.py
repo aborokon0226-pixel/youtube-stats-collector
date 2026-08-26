@@ -35,11 +35,13 @@ FUNNEL_ROWS = [
     "시청지속시간",
     "검색 유입",
     "페이지 유입",
+    "외부 유입",
     "키 콘텐츠 연계율",
     "풀링 콘텐츠 조회수",
     "클릭율",
     "시청지속시간",
     "탐색 유입",
+    "외부 유입",
     "월간 구독 증가수",
     "구독전환율",
     "하루 평균 조회수",
@@ -54,13 +56,15 @@ SUBSCRIBER_CONVERSION_ROW = FUNNEL_ROWS.index("구독전환율") + 2
 DAILY_AVERAGE_VIEWS_ROW = FUNNEL_ROWS.index("하루 평균 조회수") + 2
 FORTY_EIGHT_HOUR_VIEWS_ROW = FUNNEL_ROWS.index("48시간 조회수") + 2
 
-# "시청지속시간"은 키콘텐츠·풀링 콘텐츠 구간에 각각 한 번씩 등장해서 위치로 구분한다.
+# "시청지속시간"/"외부 유입"은 키콘텐츠·풀링 콘텐츠 구간에 각각 한 번씩 등장해서 위치로 구분한다.
 # (같은 구간의 "클릭율"은 유튜브 Analytics API가 제공하지 않아 행 상수를 두지 않았다.)
 KEY_AVG_VIEW_DURATION_ROW = 12
 SEARCH_TRAFFIC_ROW = 13
 PAGE_TRAFFIC_ROW = 14
-PULLING_AVG_VIEW_DURATION_ROW = 18
-BROWSE_TRAFFIC_ROW = 19
+EXT_TRAFFIC_KEY_ROW = 15
+PULLING_AVG_VIEW_DURATION_ROW = 19
+BROWSE_TRAFFIC_ROW = 20
+EXT_TRAFFIC_PULLING_ROW = 21
 
 FIRST_WEEK_COLUMN = 3  # A=항목, B=월간 목표, C=1주차 현황...
 
