@@ -1,7 +1,10 @@
-"""채널 소유자만 볼 수 있는 '키 콘텐츠 연계율'을 계산한다.
+"""채널 소유자만 볼 수 있는 심화 지표를 계산한다.
 
-풀링 콘텐츠를 본 사람이 유튜브의 '추천 동영상' 패널을 통해 키콘텐츠로 넘어간 비율을 잰다.
-채널 소유자만 볼 수 있는 데이터라, API 키가 아니라 구글 로그인(OAuth)이 필요하다.
+- 키 콘텐츠 연계율: 풀링 콘텐츠를 본 사람이 '추천 동영상' 패널을 통해 키콘텐츠로 넘어간 비율
+- 시청지속시간, 검색/페이지/탐색 유입: 키콘텐츠·풀링 콘텐츠 각각
+  (클릭율/노출수는 유튜브 Analytics API가 제공하지 않아 이 스크립트로는 못 가져온다 — 스튜디오 화면에서만 확인 가능)
+
+API 키가 아니라 구글 로그인(OAuth)이 필요하다.
 """
 
 import os
@@ -14,11 +17,17 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from youtube_stats import (
+    BROWSE_TRAFFIC_ROW,
     FUNNEL_ROWS,
+    KEY_AVG_VIEW_DURATION_ROW,
     MAIN_SHEET_NAME,
+    PAGE_TRAFFIC_ROW,
+    PULLING_AVG_VIEW_DURATION_ROW,
     REPORT_PATH,
+    SEARCH_TRAFFIC_ROW,
     ensure_week_column,
     extract_video_id,
     fetch_video_stats,
@@ -99,6 +108,85 @@ def compute_linkage_rate(source_views: dict[str, int], pulling_video_ids: set[st
     return linkage_views, linkage_rate
 
 
+def fetch_traffic_source_views(analytics, video_ids: list[str], source_type: str) -> int:
+    """주어진 영상들에 대해 특정 유입 경로(source_type)로 들어온 조회수 합을 가져온다.
+
+    video 필터와 insightTrafficSourceType 필터를 함께 쓰려면 insightTrafficSourceDetail
+    차원이 같이 있어야 하는 리포트 조합이라, 영상 하나씩 조회한 뒤 세부 항목 조회수를 다 더한다."""
+    total = 0
+    for video_id in video_ids:
+        response = (
+            analytics.reports()
+            .query(
+                ids="channel==MINE",
+                startDate="2020-01-01",
+                endDate=date.today().isoformat(),
+                metrics="views",
+                dimensions="insightTrafficSourceDetail",
+                filters=f"video=={video_id};insightTrafficSourceType=={source_type}",
+                maxResults=25,
+                sort="-views",
+            )
+            .execute()
+        )
+        total += sum(row[1] for row in response.get("rows", []))
+    return total
+
+
+def fetch_view_duration_stats(analytics, video_ids: list[str]) -> tuple[int, float]:
+    """주어진 영상들의 (총 조회수, 총 시청 시간(분)) 을 가져온다."""
+    if not video_ids:
+        return 0, 0.0
+    response = (
+        analytics.reports()
+        .query(
+            ids="channel==MINE",
+            startDate="2020-01-01",
+            endDate=date.today().isoformat(),
+            metrics="views,estimatedMinutesWatched",
+            dimensions="video",
+            filters=f"video=={','.join(video_ids)}",
+            maxResults=25,
+        )
+        .execute()
+    )
+    total_views = 0
+    total_minutes = 0.0
+    for row in response.get("rows", []):
+        _, views, minutes = row
+        total_views += views
+        total_minutes += minutes
+    return total_views, total_minutes
+
+
+def compute_average_view_duration_seconds(total_views: int, total_minutes: float) -> float:
+    """조회수 가중 평균 시청 지속시간(초)을 계산한다."""
+    return (total_minutes * 60 / total_views) if total_views else 0.0
+
+
+def collect_engagement_metrics(analytics, video_ids: list[str], label: str) -> dict:
+    """시청지속시간을 가져온다. (클릭율/노출수는 유튜브 Analytics API가 아예 제공하지 않아 제외)
+    실패해도(HttpError) 전체 실행이 멈추지 않도록 한다."""
+    result = {"avg_duration": None}
+
+    try:
+        views, minutes = fetch_view_duration_stats(analytics, video_ids)
+        result["avg_duration"] = compute_average_view_duration_seconds(views, minutes)
+    except HttpError as error:
+        print(f"[{label}] 시청지속시간은 이번엔 못 가져왔어요: {error.reason}")
+
+    return result
+
+
+def collect_traffic_source(analytics, video_ids: list[str], source_type: str, label: str) -> int | None:
+    """유입 경로별 조회수를 시도해서 가져오고, 실패하면 None을 반환한다."""
+    try:
+        return fetch_traffic_source_views(analytics, video_ids, source_type)
+    except HttpError as error:
+        print(f"[{label}] 유입 경로 데이터는 이번엔 못 가져왔어요: {error.reason}")
+        return None
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     load_dotenv()
@@ -132,16 +220,41 @@ def main() -> None:
     source_views = fetch_related_video_traffic(analytics, key_video_id)
     linkage_views, linkage_rate = compute_linkage_rate(source_views, pulling_video_ids, pulling_total_views)
 
+    pulling_video_id_list = list(pulling_video_ids)
+    key_metrics = collect_engagement_metrics(analytics, [key_video_id], "키콘텐츠")
+    pulling_metrics = collect_engagement_metrics(analytics, pulling_video_id_list, "풀링 콘텐츠")
+
+    search_views = collect_traffic_source(analytics, [key_video_id], "YT_SEARCH", "키콘텐츠 검색 유입")
+    page_views = collect_traffic_source(analytics, [key_video_id], "YT_OTHER_PAGE", "키콘텐츠 페이지 유입")
+    # 유튜브 Analytics API에는 "탐색 기능" 전용 값이 따로 없어서, 가장 가까운 SUBSCRIBER
+    # (홈 화면 + 구독 피드)로 근사한다. Shorts 스와이프 등 다른 발견 경로는 포함되지 않는다.
+    browse_views = collect_traffic_source(analytics, pulling_video_id_list, "SUBSCRIBER", "풀링 콘텐츠 탐색 유입")
+
     workbook = get_or_create_workbook(REPORT_PATH)
     sheet = workbook[MAIN_SHEET_NAME]
     week_col = ensure_week_column(sheet, week)
     sheet.cell(row=LINKAGE_RATE_ROW, column=week_col, value=round(linkage_rate, 2))
+
+    if key_metrics["avg_duration"] is not None:
+        sheet.cell(row=KEY_AVG_VIEW_DURATION_ROW, column=week_col, value=round(key_metrics["avg_duration"], 1))
+    if pulling_metrics["avg_duration"] is not None:
+        sheet.cell(row=PULLING_AVG_VIEW_DURATION_ROW, column=week_col, value=round(pulling_metrics["avg_duration"], 1))
+    if search_views is not None:
+        sheet.cell(row=SEARCH_TRAFFIC_ROW, column=week_col, value=search_views)
+    if page_views is not None:
+        sheet.cell(row=PAGE_TRAFFIC_ROW, column=week_col, value=page_views)
+    if browse_views is not None:
+        sheet.cell(row=BROWSE_TRAFFIC_ROW, column=week_col, value=browse_views)
+
     workbook.save(REPORT_PATH)
 
     print(
         f"완료: {week}주차 - 키 콘텐츠 연계율 {linkage_rate:.2f}% "
         f"(연계 조회수 {linkage_views} / 풀링 콘텐츠 조회수 {pulling_total_views})"
     )
+    print(f"       키콘텐츠 시청지속시간(초) {key_metrics['avg_duration']}")
+    print(f"       풀링 콘텐츠 시청지속시간(초) {pulling_metrics['avg_duration']}")
+    print(f"       검색 유입 {search_views}, 페이지 유입 {page_views}, 탐색 유입 {browse_views}")
 
 
 if __name__ == "__main__":
