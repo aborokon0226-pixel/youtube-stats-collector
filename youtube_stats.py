@@ -56,12 +56,15 @@ SUBSCRIBER_CONVERSION_ROW = FUNNEL_ROWS.index("구독전환율") + 2
 DAILY_AVERAGE_VIEWS_ROW = FUNNEL_ROWS.index("하루 평균 조회수") + 2
 FORTY_EIGHT_HOUR_VIEWS_ROW = FUNNEL_ROWS.index("48시간 조회수") + 2
 
-# "시청지속시간"/"외부 유입"은 키콘텐츠·풀링 콘텐츠 구간에 각각 한 번씩 등장해서 위치로 구분한다.
-# (같은 구간의 "클릭율"은 유튜브 Analytics API가 제공하지 않아 행 상수를 두지 않았다.)
+# "클릭율"/"시청지속시간"/"외부 유입"은 키콘텐츠·풀링 콘텐츠 구간에 각각 한 번씩 등장해서 위치로 구분한다.
+# "클릭율"(노출 대비 클릭)은 실시간 Analytics API가 아니라, 별도 신청이 필요한
+# YouTube Reporting API의 리치 리포트로만 받을 수 있다 (setup_reach_report.py / download_reach_report.py).
+KEY_CTR_ROW = 11
 KEY_AVG_VIEW_DURATION_ROW = 12
 SEARCH_TRAFFIC_ROW = 13
 PAGE_TRAFFIC_ROW = 14
 EXT_TRAFFIC_KEY_ROW = 15
+PULLING_CTR_ROW = 18
 PULLING_AVG_VIEW_DURATION_ROW = 19
 BROWSE_TRAFFIC_ROW = 20
 EXT_TRAFFIC_PULLING_ROW = 21
