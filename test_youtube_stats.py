@@ -207,25 +207,30 @@ class TestComputeSubscriberConversionRate(unittest.TestCase):
 class TestSubscriberSnapshot(unittest.TestCase):
     def test_no_snapshot_sheet_returns_none(self):
         workbook = Workbook()
-        self.assertIsNone(get_previous_subscriber_snapshot(workbook, week=3))
+        self.assertIsNone(get_previous_subscriber_snapshot(workbook, week=3, channel_id="UCabc"))
 
     def test_records_and_finds_previous_week(self):
         workbook = Workbook()
-        record_subscriber_snapshot(workbook, week=1, subscriber_count=100)
-        record_subscriber_snapshot(workbook, week=2, subscriber_count=120)
-        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=3), 120)
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100, channel_id="UCabc")
+        record_subscriber_snapshot(workbook, week=2, subscriber_count=120, channel_id="UCabc")
+        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=3, channel_id="UCabc"), 120)
 
     def test_ignores_future_weeks(self):
         workbook = Workbook()
-        record_subscriber_snapshot(workbook, week=1, subscriber_count=100)
-        record_subscriber_snapshot(workbook, week=5, subscriber_count=200)
-        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=3), 100)
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100, channel_id="UCabc")
+        record_subscriber_snapshot(workbook, week=5, subscriber_count=200, channel_id="UCabc")
+        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=3, channel_id="UCabc"), 100)
 
     def test_rerecording_same_week_updates_value(self):
         workbook = Workbook()
-        record_subscriber_snapshot(workbook, week=1, subscriber_count=100)
-        record_subscriber_snapshot(workbook, week=1, subscriber_count=150)
-        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=2), 150)
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100, channel_id="UCabc")
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=150, channel_id="UCabc")
+        self.assertEqual(get_previous_subscriber_snapshot(workbook, week=2, channel_id="UCabc"), 150)
+
+    def test_ignores_snapshots_from_a_different_channel(self):
+        workbook = Workbook()
+        record_subscriber_snapshot(workbook, week=1, subscriber_count=100, channel_id="UCold")
+        self.assertIsNone(get_previous_subscriber_snapshot(workbook, week=3, channel_id="UCnew"))
 
 
 if __name__ == "__main__":
