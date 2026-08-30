@@ -127,8 +127,19 @@ def fetch_channel_subscriber_count(youtube, channel_ref: dict) -> int:
     return int(items[0]["statistics"].get("subscriberCount", 0))
 
 
-def get_previous_subscriber_snapshot(workbook: Workbook, week: int) -> int | None:
-    """week보다 이전 주차 중, 가장 최근에 기록해둔 구독자 수 스냅샷을 찾는다."""
+def get_channel_id(youtube, channel_ref: dict) -> str:
+    """채널의 고유 ID(UC...)를 가져온다. 채널을 바꿔도 스냅샷 기록을 구분하는 데 쓴다."""
+    response = youtube.channels().list(part="id", **channel_ref).execute()
+    items = response.get("items", [])
+    if not items:
+        raise ValueError("채널을 찾을 수 없습니다. 채널 주소를 다시 확인해주세요.")
+    return items[0]["id"]
+
+
+def get_previous_subscriber_snapshot(workbook: Workbook, week: int, channel_id: str) -> int | None:
+    """같은 채널의 기록 중, week보다 이전 주차에서 가장 최근 구독자 수 스냅샷을 찾는다.
+
+    채널을 바꾼 뒤에도 예전 채널의 스냅샷과 잘못 비교하지 않도록, 채널 ID가 같은 행만 본다."""
     if SUBSCRIBER_SNAPSHOT_SHEET not in workbook.sheetnames:
         return None
     sheet = workbook[SUBSCRIBER_SNAPSHOT_SHEET]
@@ -137,25 +148,28 @@ def get_previous_subscriber_snapshot(workbook: Workbook, week: int) -> int | Non
         if not row or row[0] is None:
             continue
         snapshot_week, subscriber_count = row[0], row[1]
+        row_channel_id = row[2] if len(row) > 2 else None
+        if row_channel_id != channel_id:
+            continue
         if snapshot_week < week and (best is None or snapshot_week > best[0]):
             best = (snapshot_week, subscriber_count)
     return best[1] if best else None
 
 
-def record_subscriber_snapshot(workbook: Workbook, week: int, subscriber_count: int) -> None:
-    """이번 주차의 구독자 수를 기록해서, 다음 주에 증가분을 계산할 수 있게 남겨둔다."""
+def record_subscriber_snapshot(workbook: Workbook, week: int, subscriber_count: int, channel_id: str) -> None:
+    """이번 주차의 구독자 수를 채널 ID와 함께 기록해서, 다음 주에 증가분을 계산할 수 있게 남겨둔다."""
     sheet = (
         workbook[SUBSCRIBER_SNAPSHOT_SHEET]
         if SUBSCRIBER_SNAPSHOT_SHEET in workbook.sheetnames
         else workbook.create_sheet(SUBSCRIBER_SNAPSHOT_SHEET)
     )
     if sheet.max_row == 1 and sheet.max_column == 1:
-        sheet.append(["주차", "구독자수"])
+        sheet.append(["주차", "구독자수", "채널ID"])
     for row_cells in sheet.iter_rows(min_row=2):
-        if row_cells[0].value == week:
+        if row_cells[0].value == week and row_cells[2].value == channel_id:
             row_cells[1].value = subscriber_count
             return
-    sheet.append([week, subscriber_count])
+    sheet.append([week, subscriber_count, channel_id])
 
 
 def compute_subscriber_conversion_rate(subscriber_growth: int, total_views: int) -> float:
@@ -353,6 +367,7 @@ def main() -> None:
 
     pulling_rows = []
     subscriber_count = None
+    channel_id = None
     if channel_text:
         channel_ref = parse_channel_reference(channel_text)
         uploads_playlist_id = get_uploads_playlist_id(youtube, channel_ref)
@@ -360,6 +375,7 @@ def main() -> None:
         pulling_video_ids = [video_id for video_id in all_video_ids if video_id not in key_video_ids]
         pulling_rows = fetch_video_stats(youtube, pulling_video_ids)
         subscriber_count = fetch_channel_subscriber_count(youtube, channel_ref)
+        channel_id = get_channel_id(youtube, channel_ref)
 
     key_views = sum(row["view_count"] for row in key_rows)
     pulling_views = sum(row["view_count"] for row in pulling_rows)
@@ -372,13 +388,13 @@ def main() -> None:
 
     subscriber_growth = None
     if subscriber_count is not None:
-        previous_count = get_previous_subscriber_snapshot(workbook, week)
+        previous_count = get_previous_subscriber_snapshot(workbook, week, channel_id)
         if previous_count is not None:
             subscriber_growth = subscriber_count - previous_count
             conversion_rate = compute_subscriber_conversion_rate(subscriber_growth, key_views + pulling_views)
             sheet.cell(row=SUBSCRIBER_GROWTH_ROW, column=week_col, value=subscriber_growth)
             sheet.cell(row=SUBSCRIBER_CONVERSION_ROW, column=week_col, value=round(conversion_rate, 2))
-        record_subscriber_snapshot(workbook, week, subscriber_count)
+        record_subscriber_snapshot(workbook, week, subscriber_count, channel_id)
 
     daily_average_views = compute_daily_average_views(key_views + pulling_views)
     forty_eight_hour_views = estimate_48_hour_views(daily_average_views)
