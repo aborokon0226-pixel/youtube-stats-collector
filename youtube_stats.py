@@ -263,6 +263,23 @@ def week_column_index(week: int) -> int:
     return FIRST_WEEK_COLUMN + (week - 1)
 
 
+def suggest_next_week(sheet) -> int:
+    """이미 기록된 주차 중 가장 큰 번호의 다음 주차를 기본값으로 제안한다.
+
+    달이 바뀌면 week_of_month()가 다시 1부터 시작해버려서, 실제로 이어지는 추적 주차와
+    어긋나 기존 주차 데이터를 덮어쓰는 문제가 있었다. 시트에 이미 적힌 주차를 기준으로 삼아야
+    달이 바뀌어도 계속 이어서 셀 수 있다."""
+    max_week = 0
+    for column in range(FIRST_WEEK_COLUMN, sheet.max_column + 1):
+        header = sheet.cell(row=1, column=column).value
+        if not header:
+            continue
+        match = re.match(r"(\d+)주차", header)
+        if match:
+            max_week = max(max_week, int(match.group(1)))
+    return max_week + 1 if max_week else week_of_month(date.today())
+
+
 def get_or_create_workbook(path: str) -> Workbook:
     """기존 리포트 파일이 있으면 불러오고, 없으면 표 틀을 새로 만든다."""
     if Path(path).exists():
@@ -315,8 +332,7 @@ def read_links_from_stdin(prompt: str) -> list[str]:
     return links
 
 
-def prompt_week_number() -> int:
-    default_week = week_of_month(date.today())
+def prompt_week_number(default_week: int) -> int:
     while True:
         raw = input(f"몇 주차 데이터인가요? (숫자만 입력, 기본값 {default_week}주차 - 그냥 Enter): ").strip()
         if not raw:
@@ -353,7 +369,10 @@ def main() -> None:
         print("오류: YOUTUBE_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
         sys.exit(1)
 
-    week = prompt_week_number()
+    workbook = get_or_create_workbook(REPORT_PATH)
+    sheet = workbook[MAIN_SHEET_NAME]
+
+    week = prompt_week_number(suggest_next_week(sheet))
     key_links = read_links_from_stdin(
         "[키콘텐츠] 랜딩페이지로 유입시키는 영상 링크를 한 줄에 하나씩 입력하세요. 없으면 바로 Enter."
     )
@@ -380,8 +399,6 @@ def main() -> None:
     key_views = sum(row["view_count"] for row in key_rows)
     pulling_views = sum(row["view_count"] for row in pulling_rows)
 
-    workbook = get_or_create_workbook(REPORT_PATH)
-    sheet = workbook[MAIN_SHEET_NAME]
     week_col = ensure_week_column(sheet, week)
     write_view_counts(sheet, week_col, key_views, pulling_views)
     write_detail_sheet(workbook, week, key_rows, pulling_rows)
