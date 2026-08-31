@@ -17,6 +17,7 @@ from youtube_stats import (
     links_to_video_ids,
     parse_channel_reference,
     record_subscriber_snapshot,
+    suggest_next_week,
     week_column_index,
     week_date_range,
     week_of_month,
@@ -175,6 +176,28 @@ class TestEnsureWeekColumn(unittest.TestCase):
         sheet.cell(row=1, column=3, value="1주차 현황(수정됨)")
         ensure_week_column(sheet, 1)
         self.assertEqual(sheet.cell(row=1, column=3).value, "1주차 현황(수정됨)")
+
+
+class TestSuggestNextWeek(unittest.TestCase):
+    def test_no_existing_weeks_falls_back_to_calendar(self):
+        sheet = Workbook().active
+        self.assertEqual(suggest_next_week(sheet), week_of_month(date.today()))
+
+    def test_continues_after_last_recorded_week(self):
+        sheet = Workbook().active
+        sheet.cell(row=1, column=3, value="1주차 현황")
+        sheet.cell(row=1, column=5, value="3주차 현황")
+        sheet.cell(row=1, column=6, value="4주차 현황")
+        sheet.cell(row=1, column=7, value="5주차 현황")
+        self.assertEqual(suggest_next_week(sheet), 6)
+
+    def test_ignores_month_rollover(self):
+        # 달이 바뀌어 week_of_month()가 1을 가리키더라도, 이미 5주차까지 기록되어 있으면
+        # 6주차를 이어서 제안해야 한다 (원래 1주차 데이터를 덮어쓰는 버그 재발 방지).
+        sheet = Workbook().active
+        sheet.cell(row=1, column=7, value="5주차 현황")
+        self.assertNotEqual(suggest_next_week(sheet), 1)
+        self.assertEqual(suggest_next_week(sheet), 6)
 
 
 class TestWriteViewCounts(unittest.TestCase):
