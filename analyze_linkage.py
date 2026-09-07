@@ -39,6 +39,7 @@ from youtube_stats import (
     parse_channel_reference,
     prompt_channel_reference,
     prompt_week_number,
+    suggest_next_week,
 )
 
 SCOPES = ["https://www.googleapis.com/auth/yt-analytics.readonly"]
@@ -197,7 +198,10 @@ def main() -> None:
         print("오류: YOUTUBE_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
         sys.exit(1)
 
-    week = prompt_week_number()
+    workbook = get_or_create_workbook(REPORT_PATH)
+    sheet = workbook[MAIN_SHEET_NAME]
+
+    week = prompt_week_number(suggest_next_week(sheet))
     key_link = input("키콘텐츠 링크를 입력하세요: ").strip()
     key_video_id = extract_video_id(key_link)
     if not key_video_id:
@@ -234,8 +238,6 @@ def main() -> None:
     browse_views = collect_traffic_source(analytics, pulling_video_id_list, "SUBSCRIBER", "풀링 콘텐츠 탐색 유입")
     pulling_ext_views = collect_traffic_source(analytics, pulling_video_id_list, "EXT_URL", "풀링 콘텐츠 외부 유입")
 
-    workbook = get_or_create_workbook(REPORT_PATH)
-    sheet = workbook[MAIN_SHEET_NAME]
     week_col = ensure_week_column(sheet, week)
     sheet.cell(row=LINKAGE_RATE_ROW, column=week_col, value=round(linkage_rate, 2))
 
